@@ -132,6 +132,23 @@ install_sing_box() {
   rm -rf "$tmp"
 }
 
+valid_reality_key_file() {
+  local file=$1
+  [ -s "$file" ] && grep -Eq '^[A-Za-z0-9_-]{43}$' "$file"
+}
+
+generate_reality_keypair() {
+  "$SBOX_DIR/sing-box" generate reality-keypair > "$SBOX_DIR/reality-keypair.txt"
+  awk -F': ' '/PrivateKey:/ {print $2}' "$SBOX_DIR/reality-keypair.txt" | tr -d '\r' > "$SBOX_DIR/reality_private.key"
+  awk -F': ' '/PublicKey:/ {print $2}' "$SBOX_DIR/reality-keypair.txt" | tr -d '\r' > "$SBOX_DIR/reality_public.key"
+
+  if ! valid_reality_key_file "$SBOX_DIR/reality_private.key" || ! valid_reality_key_file "$SBOX_DIR/reality_public.key"; then
+    echo "Failed to generate valid Reality keys." >&2
+    cat "$SBOX_DIR/reality-keypair.txt" >&2
+    exit 1
+  fi
+}
+
 generate_identity() {
   if [ -z "$UUID" ]; then
     if [ -f "$SBOX_DIR/uuid" ]; then
@@ -144,10 +161,9 @@ generate_identity() {
 
   # Keep Reality keys separate from TLS private keys. sing-box-yg also uses
   # private.key for certificate material, which is not a valid Reality key.
-  if ! [ -s "$SBOX_DIR/reality_private.key" ] || ! [ -s "$SBOX_DIR/reality_public.key" ]; then
-    "$SBOX_DIR/sing-box" generate reality-keypair > "$SBOX_DIR/reality-keypair.txt"
-    awk '/PrivateKey:/ {print $2}' "$SBOX_DIR/reality-keypair.txt" > "$SBOX_DIR/reality_private.key"
-    awk '/PublicKey:/ {print $2}' "$SBOX_DIR/reality-keypair.txt" > "$SBOX_DIR/reality_public.key"
+  if ! valid_reality_key_file "$SBOX_DIR/reality_private.key" || ! valid_reality_key_file "$SBOX_DIR/reality_public.key"; then
+    rm -f "$SBOX_DIR/reality_private.key" "$SBOX_DIR/reality_public.key"
+    generate_reality_keypair
   fi
 
   if [ ! -f "$SBOX_DIR/tls.key" ] || [ ! -f "$SBOX_DIR/tls.crt" ]; then
