@@ -28,6 +28,80 @@
     }
   });
 
+  const showCopyBox = (output, hosts) => {
+    const old = document.getElementById("bohrium-host-copy-box");
+    if (old) old.remove();
+
+    const wrap = document.createElement("div");
+    wrap.id = "bohrium-host-copy-box";
+    wrap.style.cssText = [
+      "position:fixed",
+      "z-index:2147483647",
+      "inset:24px",
+      "background:#0f172a",
+      "color:#e5e7eb",
+      "border:1px solid #334155",
+      "border-radius:8px",
+      "box-shadow:0 24px 80px rgba(0,0,0,.45)",
+      "padding:16px",
+      "font:14px system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif",
+    ].join(";");
+
+    const title = document.createElement("div");
+    title.textContent = `Found ${hosts.length} Bohrium host(s). Copy the text below.`;
+    title.style.cssText = "font-weight:700;margin-bottom:10px";
+
+    const textarea = document.createElement("textarea");
+    textarea.value = output;
+    textarea.style.cssText = [
+      "width:100%",
+      "height:calc(100% - 56px)",
+      "box-sizing:border-box",
+      "background:#020617",
+      "color:#e5e7eb",
+      "border:1px solid #475569",
+      "border-radius:6px",
+      "padding:12px",
+      "font:13px ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace",
+      "white-space:pre",
+    ].join(";");
+
+    const close = document.createElement("button");
+    close.textContent = "Close";
+    close.style.cssText = "float:right;margin-top:10px;padding:8px 14px;border:0;border-radius:6px;background:#4f46e5;color:white;font-weight:700";
+    close.onclick = () => wrap.remove();
+
+    wrap.append(title, textarea, close);
+    document.body.appendChild(wrap);
+    textarea.focus();
+    textarea.select();
+  };
+
+  const copyOutput = async (output, hosts) => {
+    window.__bohriumHosts = hosts;
+    window.__bohriumHostsOutput = output;
+
+    try {
+      if (typeof copy === "function") {
+        copy(output);
+        alert(`Copied ${hosts.length} Bohrium host(s), deploy commands, and subscription URLs.`);
+        return;
+      }
+    } catch (_) {
+      // DevTools copy() may be unavailable outside the Console.
+    }
+
+    try {
+      await navigator.clipboard.writeText(output);
+      alert(`Copied ${hosts.length} Bohrium host(s), deploy commands, and subscription URLs.`);
+      return;
+    } catch (_) {
+      console.log(output);
+      showCopyBox(output, hosts);
+      alert(`Found ${hosts.length} Bohrium host(s). Clipboard failed, so a copy box was opened on the page.`);
+    }
+  };
+
   Promise.all(fetchTexts).then(async () => {
     const hosts = [...new Set(texts.join("\n").match(hostRe) || [])].sort();
     if (!hosts.length) {
@@ -51,12 +125,6 @@
       subscriptionUrls,
     ].join("\n");
 
-    try {
-      await navigator.clipboard.writeText(output);
-      alert(`Copied ${hosts.length} Bohrium host(s), deploy commands, and subscription URLs.`);
-    } catch (_) {
-      console.log(output);
-      alert(`Found ${hosts.length} host(s). Clipboard failed, so the output was printed to Console.`);
-    }
+    await copyOutput(output, hosts);
   });
 })();
