@@ -20,9 +20,18 @@ SSH into the new VPS, then run:
 bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh)
 ```
 
-The script tries to auto-detect the current `*.bohrium.tech` host. If it only
-finds a public IP, or if the subscription cannot connect, pass the Bohrium host
-shown in the web UI or your SSH command:
+The VPS usually cannot see the SSH host displayed in the BohrClaw web UI. If
+auto-detection fails, the script asks you to paste the SSH command from the
+connection dialog.
+
+Most reliable phone usage: copy the SSH command from BohrClaw and pass it as the
+first argument:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh) 'ssh root@qqvv1491881.bohrium.tech'
+```
+
+Host-only style also works:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh) pjqk1492005.bohrium.tech
@@ -32,6 +41,48 @@ Equivalent env style:
 
 ```bash
 PUBLIC_HOST=pjqk1492005.bohrium.tech bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh)
+```
+
+## Six-Node Workflow
+
+The VPS cannot discover the web UI SSH host by itself after a restart, because
+that host is assigned and displayed by BohrClaw outside the machine. You do not
+need to keep six browser windows open. Open one BohrClaw dashboard after you
+manually start the nodes, extract the visible card domains once, then deploy
+from your Mac.
+
+1. In BohrClaw, manually start the nodes you want to use.
+2. Keep the main instance list page open. If the card shows hosts like
+   `sufx1491910.bohrium.tech`, that page is enough.
+3. Open Chrome DevTools Console on the BohrClaw page and run:
+
+```js
+fetch("https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/browser_extract_hosts.js").then(r => r.text()).then(eval)
+```
+
+   If Chrome blocks pasting into Console, type `allow pasting` first.
+4. The script copies SSH hosts, per-node commands, and subscription URLs to your
+   clipboard.
+5. Save just the copied `ssh root@...bohrium.tech` lines to `hosts.txt`, or use:
+
+```bash
+pbpaste | ./bohrium_extract_hosts.sh > hosts.txt
+```
+
+6. Deploy all nodes from your Mac:
+
+```bash
+cd /Users/nfts2968/Documents/openai_cudex/bohrium-sg-vpn
+BOHRIUM_SSH_PASSWORD='your-bohrclaw-password' ./bohrium_fleet_deploy.sh hosts.txt
+```
+
+If you do not want to use password automation, omit `BOHRIUM_SSH_PASSWORD` and
+enter the password when SSH asks.
+
+The fleet deploy script writes all subscription URLs to:
+
+```text
+bohrium_subscriptions.txt
 ```
 
 After the script finishes, import this subscription into V2Ray/V2Box:
@@ -59,18 +110,20 @@ Defaults:
 
 - `SG_HTTP_PROXY` uses the VPS `HTTPS_PROXY` or `HTTP_PROXY`, falling back to `http://gemini.op.xdptech.com:8118`.
 - `UUID` is generated automatically and persisted in `/etc/s-box/uuid`.
+- `PUBLIC_HOST` is saved to `/etc/s-box/public_host` after a successful run.
 
 ## What It Does
 
-1. Installs dependencies.
-2. Auto-detects `PUBLIC_HOST` from args, env, hostname, and local Bohrium traces.
-3. Stops old `sing-box`/subscription processes and frees `50001-50005`.
-4. Stops and disables OpenClaw so `50001` is free.
-5. Installs `sing-box 1.10.7`.
-6. Generates Reality keys, UUID, and a self-signed TLS cert.
-7. Writes `/etc/s-box/sb.json`.
-8. Starts `sing-box` and the subscription HTTP service as detached background processes.
-9. Prints the node links and subscription URL.
+1. Detects or asks for `PUBLIC_HOST` before installing packages.
+2. Saves `PUBLIC_HOST` to `/etc/s-box/public_host`.
+3. Installs dependencies.
+4. Stops old `sing-box`/subscription processes and frees `50001-50005`.
+5. Stops and disables OpenClaw so `50001` is free.
+6. Installs `sing-box 1.10.7`.
+7. Generates Reality keys, UUID, and a self-signed TLS cert.
+8. Writes `/etc/s-box/sb.json`.
+9. Starts `sing-box` and the subscription HTTP service as detached background processes.
+10. Prints the node links and subscription URL.
 
 ## Verify
 

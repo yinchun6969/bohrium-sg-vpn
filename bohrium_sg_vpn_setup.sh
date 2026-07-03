@@ -34,6 +34,7 @@ usage() {
 Usage:
   bash bohrium_sg_vpn_setup.sh [PUBLIC_HOST]
   bash bohrium_sg_vpn_setup.sh --host PUBLIC_HOST
+  bash bohrium_sg_vpn_setup.sh 'ssh root@qqvv1491881.bohrium.tech'
 
 Optional env:
   PUBLIC_HOST=pjqk1492005.bohrium.tech
@@ -41,7 +42,8 @@ Optional env:
   UUID=your-fixed-uuid
 
 If PUBLIC_HOST is omitted, the script tries to discover a *.bohrium.tech host
-from env, hostname, and local system files, then falls back to the public IPv4.
+from env, hostname, saved state, and local system files. If that fails, it asks
+you to paste the SSH command shown in the Bohrium web UI.
 EOF
 }
 
@@ -63,12 +65,10 @@ parse_args() {
       *)
         if [ -z "$PUBLIC_HOST" ]; then
           PUBLIC_HOST=$1
-          shift
         else
-          echo "Unexpected argument: $1" >&2
-          usage >&2
-          exit 1
+          PUBLIC_HOST="$PUBLIC_HOST $1"
         fi
+        shift
         ;;
     esac
   done
@@ -144,7 +144,7 @@ set_public_host_candidate() {
 }
 
 detect_public_host() {
-  local candidate name file public_ip
+  local candidate name file public_ip typed_host
 
   if set_public_host_candidate "argument-or-env:PUBLIC_HOST" "$PUBLIC_HOST"; then
     log "PUBLIC_HOST=$PUBLIC_HOST (source: $PUBLIC_HOST_SOURCE)"
@@ -180,7 +180,7 @@ detect_public_host() {
     return
   fi
 
-  for file in /etc/hostname /etc/hosts /etc/motd /etc/issue /root/.bash_history /root/.zsh_history; do
+  for file in "$SBOX_DIR/public_host" /etc/hostname /etc/hosts /etc/motd /etc/issue /root/.bash_history /root/.zsh_history; do
     [ -r "$file" ] || continue
     candidate=$(extract_bohrium_host < "$file")
     if set_public_host_candidate "file:$file" "$candidate"; then
@@ -197,12 +197,30 @@ detect_public_host() {
     return
   fi
 
+  if [ -t 0 ] || [ -r /dev/tty ]; then
+    echo "Could not auto-detect the Bohrium host from inside the VPS." >&2
+    echo "Paste the SSH command or host shown in the Bohrium web UI." >&2
+    echo "Example: ssh root@qqvv1491881.bohrium.tech" >&2
+    printf 'Bohrium SSH command or host: ' >&2
+    if read -r typed_host </dev/tty; then
+      if set_public_host_candidate "interactive-input" "$typed_host"; then
+        log "PUBLIC_HOST=$PUBLIC_HOST (source: $PUBLIC_HOST_SOURCE)"
+        return
+      fi
+    fi
+  fi
+
   echo "Could not auto-detect PUBLIC_HOST." >&2
   echo "Run again with the Bohrium SSH/public host, e.g.:" >&2
-  echo "  bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh) pjqk1492005.bohrium.tech" >&2
+  echo "  bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh) 'ssh root@qqvv1491881.bohrium.tech'" >&2
   echo "or:" >&2
-  echo "  PUBLIC_HOST=pjqk1492005.bohrium.tech bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh)" >&2
+  echo "  PUBLIC_HOST=qqvv1491881.bohrium.tech bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh)" >&2
   exit 1
+}
+
+persist_public_host() {
+  mkdir -p "$SBOX_DIR"
+  printf '%s\n' "$PUBLIC_HOST" > "$SBOX_DIR/public_host"
 }
 
 terminate_pid() {
@@ -527,8 +545,9 @@ verify() {
 main() {
   parse_args "$@"
   need_root
-  install_deps
   detect_public_host
+  persist_public_host
+  install_deps
   proxy_host_port
   detect_supervisor_conf
   stop_openclaw_and_free_ports
