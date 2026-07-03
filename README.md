@@ -55,7 +55,7 @@ Defaults:
 3. Installs `sing-box 1.10.7`.
 4. Generates Reality keys, UUID, and a self-signed TLS cert.
 5. Writes `/etc/s-box/sb.json`.
-6. Starts `sing-box` and the subscription HTTP service under supervisor.
+6. Starts `sing-box` and the subscription HTTP service as detached background processes.
 7. Prints the node links and subscription URL.
 
 ## Verify

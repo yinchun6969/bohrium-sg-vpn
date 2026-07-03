@@ -93,6 +93,11 @@ svctl() {
 free_vpn_ports() {
   svctl stop sing-box >/dev/null 2>&1 || true
   svctl stop v2ray-sub >/dev/null 2>&1 || true
+  svctl remove sing-box >/dev/null 2>&1 || true
+  svctl remove v2ray-sub >/dev/null 2>&1 || true
+  rm -f /etc/supervisor/conf.d/sing-box.conf /etc/supervisor/conf.d/v2ray-sub.conf
+  svctl reread >/dev/null 2>&1 || true
+  svctl update >/dev/null 2>&1 || true
   fuser -k 50001/tcp 50002/tcp 50003/tcp 50004/tcp 50005/tcp >/dev/null 2>&1 || true
 }
 
@@ -247,60 +252,21 @@ write_subscription() {
   printf '\n' >> "$SBOX_DIR/sub/v2ray.txt"
 }
 
-write_supervisor() {
-  mkdir -p /etc/supervisor/conf.d
+start_services() {
   free_vpn_ports
 
-  cat > /etc/supervisor/conf.d/sing-box.conf <<EOF
-[program:sing-box]
-command=$SBOX_DIR/sing-box run -c $SBOX_DIR/sb.json
-directory=$SBOX_DIR
-autostart=true
-autorestart=true
-startsecs=2
-startretries=3
-user=root
-redirect_stderr=true
-stdout_logfile=/var/log/sing-box-supervisor.log
-stdout_logfile_maxbytes=5MB
-stdout_logfile_backups=2
-stopasgroup=true
-killasgroup=true
-EOF
-
-  cat > /etc/supervisor/conf.d/v2ray-sub.conf <<EOF
-[program:v2ray-sub]
-command=python3 -m http.server 50002 --bind 0.0.0.0 --directory $SBOX_DIR/sub
-directory=$SBOX_DIR/sub
-autostart=true
-autorestart=true
-startsecs=1
-startretries=3
-user=root
-redirect_stderr=true
-stdout_logfile=/var/log/v2ray-sub-supervisor.log
-stdout_logfile_maxbytes=1MB
-stdout_logfile_backups=1
-stopasgroup=true
-killasgroup=true
-EOF
-
-  service supervisor start >/dev/null 2>&1 || /etc/init.d/supervisor start >/dev/null 2>&1 || true
-  if ! svctl status >/dev/null 2>&1; then
-    supervisord -c "$SUPERVISOR_CONF" >/dev/null 2>&1 || true
-    sleep 1
-  fi
-  svctl reread
-  svctl update
   sleep 2
-  svctl status sing-box | grep -q RUNNING || svctl start sing-box
-  svctl status v2ray-sub | grep -q RUNNING || svctl start v2ray-sub
+  setsid "$SBOX_DIR/sing-box" run -c "$SBOX_DIR/sb.json" </dev/null >/var/log/sing-box.log 2>&1 &
+  echo $! > "$SBOX_DIR/sing-box.pid"
+  setsid python3 -m http.server 50002 --bind 0.0.0.0 --directory "$SBOX_DIR/sub" </dev/null >/var/log/v2ray-sub.log 2>&1 &
+  echo $! > "$SBOX_DIR/v2ray-sub.pid"
+  sleep 2
 }
 
 verify() {
   echo
-  echo "== supervisor =="
-  svctl status || true
+  echo "== processes =="
+  ps -ef | grep -E '[s]ing-box run|[h]ttp.server 50002' || true
   echo
   echo "== listening =="
   ss -ltnp | grep -E ':(50001|50002|50003|50004|50005) ' || true
@@ -325,7 +291,7 @@ main() {
   generate_identity
   write_config
   write_subscription
-  write_supervisor
+  start_services
   verify
 }
 
