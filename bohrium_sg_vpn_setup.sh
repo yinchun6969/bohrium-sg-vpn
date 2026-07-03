@@ -142,10 +142,12 @@ generate_identity() {
   fi
   printf '%s\n' "$UUID" > "$SBOX_DIR/uuid"
 
-  if [ ! -f "$SBOX_DIR/private.key" ] || [ ! -f "$SBOX_DIR/public.key" ]; then
+  # Keep Reality keys separate from TLS private keys. sing-box-yg also uses
+  # private.key for certificate material, which is not a valid Reality key.
+  if ! [ -s "$SBOX_DIR/reality_private.key" ] || ! [ -s "$SBOX_DIR/reality_public.key" ]; then
     "$SBOX_DIR/sing-box" generate reality-keypair > "$SBOX_DIR/reality-keypair.txt"
-    awk '/PrivateKey:/ {print $2}' "$SBOX_DIR/reality-keypair.txt" > "$SBOX_DIR/private.key"
-    awk '/PublicKey:/ {print $2}' "$SBOX_DIR/reality-keypair.txt" > "$SBOX_DIR/public.key"
+    awk '/PrivateKey:/ {print $2}' "$SBOX_DIR/reality-keypair.txt" > "$SBOX_DIR/reality_private.key"
+    awk '/PublicKey:/ {print $2}' "$SBOX_DIR/reality-keypair.txt" > "$SBOX_DIR/reality_public.key"
   fi
 
   if [ ! -f "$SBOX_DIR/tls.key" ] || [ ! -f "$SBOX_DIR/tls.crt" ]; then
@@ -159,7 +161,7 @@ generate_identity() {
 
 write_config() {
   local private_key proxy_host proxy_port
-  private_key=$(cat "$SBOX_DIR/private.key")
+  private_key=$(cat "$SBOX_DIR/reality_private.key")
   proxy_host=$PROXY_HOST
   proxy_port=$PROXY_PORT
 
@@ -232,7 +234,7 @@ write_config() {
 
 write_subscription() {
   local public_key path vm_json vmess vless ss_user ss trojan
-  public_key=$(cat "$SBOX_DIR/public.key")
+  public_key=$(cat "$SBOX_DIR/reality_public.key")
   path="${UUID}-vm"
 
   mkdir -p "$SBOX_DIR/sub"
