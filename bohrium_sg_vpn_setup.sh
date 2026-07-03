@@ -3,6 +3,8 @@ set -Eeuo pipefail
 
 # Rebuild the working Bohrium SG TCP VPN setup from a fresh Ubuntu/Debian-ish box.
 # Usage on the VPS:
+#   bash scripts/bohrium_sg_vpn_setup.sh
+#   bash scripts/bohrium_sg_vpn_setup.sh pjqk1492005.bohrium.tech
 #   PUBLIC_HOST=pjqk1492005.bohrium.tech bash scripts/bohrium_sg_vpn_setup.sh
 #
 # Outputs:
@@ -18,8 +20,59 @@ SBOX_DIR=${SBOX_DIR:-/etc/s-box}
 SING_BOX_VERSION=${SING_BOX_VERSION:-1.10.7}
 UUID=${UUID:-}
 PUBLIC_HOST=${PUBLIC_HOST:-}
+PUBLIC_HOST_SOURCE=${PUBLIC_HOST_SOURCE:-}
 SG_HTTP_PROXY=${SG_HTTP_PROXY:-${HTTPS_PROXY:-${HTTP_PROXY:-http://gemini.op.xdptech.com:8118}}}
 SUPERVISOR_CONF=${SUPERVISOR_CONF:-}
+VPN_PORTS=${VPN_PORTS:-"50001 50002 50003 50004 50005"}
+
+log() {
+  printf '==> %s\n' "$*"
+}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  bash bohrium_sg_vpn_setup.sh [PUBLIC_HOST]
+  bash bohrium_sg_vpn_setup.sh --host PUBLIC_HOST
+
+Optional env:
+  PUBLIC_HOST=pjqk1492005.bohrium.tech
+  SG_HTTP_PROXY=http://gemini.op.xdptech.com:8118
+  UUID=your-fixed-uuid
+
+If PUBLIC_HOST is omitted, the script tries to discover a *.bohrium.tech host
+from env, hostname, and local system files, then falls back to the public IPv4.
+EOF
+}
+
+parse_args() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      --host)
+        if [ "$#" -lt 2 ]; then
+          echo "--host requires a value." >&2
+          exit 1
+        fi
+        PUBLIC_HOST=$2
+        shift 2
+        ;;
+      *)
+        if [ -z "$PUBLIC_HOST" ]; then
+          PUBLIC_HOST=$1
+          shift
+        else
+          echo "Unexpected argument: $1" >&2
+          usage >&2
+          exit 1
+        fi
+        ;;
+    esac
+  done
+}
 
 need_root() {
   if [ "$(id -u)" -ne 0 ]; then
@@ -43,24 +96,187 @@ install_deps() {
   fi
 }
 
+normalize_host() {
+  local value=$1
+  value=$(printf '%s' "$value" | tr -d '[:space:]')
+  value=${value#*://}
+  value=${value%%/*}
+  value=${value##*@}
+  value=${value%%:*}
+  printf '%s' "$value"
+}
+
+is_public_host_candidate() {
+  local host=$1
+  case "$host" in
+    ""|localhost|localhost.*|*.local|0.0.0.0|127.*|10.*|192.168.*|169.254.*)
+      return 1
+      ;;
+    bohrium-*)
+      case "$host" in
+        *.*) ;;
+        *) return 1 ;;
+      esac
+      ;;
+  esac
+
+  if printf '%s' "$host" | grep -Eq '^([A-Za-z0-9-]+\.)+[A-Za-z0-9-]+$|^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
+    return 0
+  fi
+  return 1
+}
+
+extract_bohrium_host() {
+  grep -Eao '[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.bohrium\.tech' 2>/dev/null | head -n 1 || true
+}
+
+set_public_host_candidate() {
+  local source=$1
+  local value=${2:-}
+  local host
+  host=$(normalize_host "$value")
+  if is_public_host_candidate "$host"; then
+    PUBLIC_HOST=$host
+    PUBLIC_HOST_SOURCE=$source
+    return 0
+  fi
+  return 1
+}
+
 detect_public_host() {
-  if [ -n "$PUBLIC_HOST" ]; then
+  local candidate name file public_ip
+
+  if set_public_host_candidate "argument-or-env:PUBLIC_HOST" "$PUBLIC_HOST"; then
+    log "PUBLIC_HOST=$PUBLIC_HOST (source: $PUBLIC_HOST_SOURCE)"
     return
   fi
 
-  PUBLIC_HOST=$(hostname -f 2>/dev/null || true)
-  case "$PUBLIC_HOST" in
-    ""|localhost|*.local|bohrium-*) PUBLIC_HOST="" ;;
-  esac
+  for name in \
+    BOHRIUM_HOST BOHRIUM_DOMAIN BOHRIUM_PUBLIC_HOST \
+    BOHRCLAW_HOST BOHRCLAW_DOMAIN BOHRCLAW_PUBLIC_HOST \
+    PUBLIC_DOMAIN PUBLIC_HOSTNAME EXTERNAL_HOST INSTANCE_HOST SERVER_HOST; do
+    candidate=${!name:-}
+    if set_public_host_candidate "env:$name" "$candidate"; then
+      log "PUBLIC_HOST=$PUBLIC_HOST (source: $PUBLIC_HOST_SOURCE)"
+      return
+    fi
+  done
 
-  if [ -z "$PUBLIC_HOST" ]; then
-    PUBLIC_HOST=$(curl --noproxy '*' -fsS4m 8 https://api.ipify.org || true)
+  candidate=$(printenv 2>/dev/null | extract_bohrium_host)
+  if set_public_host_candidate "env-scan:bohrium.tech" "$candidate"; then
+    log "PUBLIC_HOST=$PUBLIC_HOST (source: $PUBLIC_HOST_SOURCE)"
+    return
   fi
 
-  if [ -z "$PUBLIC_HOST" ]; then
-    echo "Set PUBLIC_HOST, e.g. PUBLIC_HOST=pjqk1492005.bohrium.tech bash $0" >&2
-    exit 1
+  candidate=$(hostname -f 2>/dev/null || true)
+  if set_public_host_candidate "hostname -f" "$candidate"; then
+    log "PUBLIC_HOST=$PUBLIC_HOST (source: $PUBLIC_HOST_SOURCE)"
+    return
   fi
+
+  candidate=$(hostname 2>/dev/null || true)
+  if set_public_host_candidate "hostname" "$candidate"; then
+    log "PUBLIC_HOST=$PUBLIC_HOST (source: $PUBLIC_HOST_SOURCE)"
+    return
+  fi
+
+  for file in /etc/hostname /etc/hosts /etc/motd /etc/issue /root/.bash_history /root/.zsh_history; do
+    [ -r "$file" ] || continue
+    candidate=$(extract_bohrium_host < "$file")
+    if set_public_host_candidate "file:$file" "$candidate"; then
+      log "PUBLIC_HOST=$PUBLIC_HOST (source: $PUBLIC_HOST_SOURCE)"
+      return
+    fi
+  done
+
+  public_ip=$(curl --noproxy '*' -fsS4m 8 https://api.ipify.org || true)
+  if set_public_host_candidate "public-ip:fallback" "$public_ip"; then
+    log "PUBLIC_HOST=$PUBLIC_HOST (source: $PUBLIC_HOST_SOURCE)"
+    echo "Warning: only a public IPv4 was auto-detected. If clients cannot connect, rerun with the Bohrium host, e.g.:" >&2
+    echo "  bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh) pjqk1492005.bohrium.tech" >&2
+    return
+  fi
+
+  echo "Could not auto-detect PUBLIC_HOST." >&2
+  echo "Run again with the Bohrium SSH/public host, e.g.:" >&2
+  echo "  bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh) pjqk1492005.bohrium.tech" >&2
+  echo "or:" >&2
+  echo "  PUBLIC_HOST=pjqk1492005.bohrium.tech bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh)" >&2
+  exit 1
+}
+
+terminate_pid() {
+  local pid=$1
+  [ -n "$pid" ] || return 0
+  kill -0 "$pid" >/dev/null 2>&1 || return 0
+  kill "$pid" >/dev/null 2>&1 || true
+  sleep 1
+  kill -0 "$pid" >/dev/null 2>&1 && kill -9 "$pid" >/dev/null 2>&1 || true
+}
+
+kill_pid_file() {
+  local file=$1
+  local pid
+  [ -r "$file" ] || return 0
+  pid=$(cat "$file" 2>/dev/null || true)
+  if printf '%s' "$pid" | grep -Eq '^[0-9]+$'; then
+    terminate_pid "$pid"
+  fi
+  rm -f "$file"
+}
+
+kill_known_vpn_processes() {
+  kill_pid_file "$SBOX_DIR/sing-box.pid"
+  kill_pid_file "$SBOX_DIR/v2ray-sub.pid"
+  pkill -TERM -f "$SBOX_DIR/sing-box run -c $SBOX_DIR/sb.json" >/dev/null 2>&1 || true
+  pkill -TERM -f "python3 -m http.server 50002 .*--directory $SBOX_DIR/sub" >/dev/null 2>&1 || true
+  sleep 1
+  pkill -KILL -f "$SBOX_DIR/sing-box run -c $SBOX_DIR/sb.json" >/dev/null 2>&1 || true
+  pkill -KILL -f "python3 -m http.server 50002 .*--directory $SBOX_DIR/sub" >/dev/null 2>&1 || true
+}
+
+kill_port_listeners() {
+  local ports=${*:-$VPN_PORTS}
+  local port pids pid
+
+  if command -v fuser >/dev/null 2>&1; then
+    for port in $ports; do
+      fuser -k "${port}/tcp" >/dev/null 2>&1 || true
+    done
+  fi
+
+  sleep 1
+  if command -v ss >/dev/null 2>&1; then
+    for port in $ports; do
+      pids=$(ss -H -ltnp 2>/dev/null | awk -v port=":$port" '$4 ~ port "$" {print}' | grep -Eo 'pid=[0-9]+' | cut -d= -f2 | sort -u || true)
+      for pid in $pids; do
+        terminate_pid "$pid"
+      done
+    done
+  fi
+
+  if command -v lsof >/dev/null 2>&1; then
+    for port in $ports; do
+      pids=$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u || true)
+      for pid in $pids; do
+        terminate_pid "$pid"
+      done
+    done
+  fi
+
+  for port in $ports; do
+    if command -v ss >/dev/null 2>&1 && ss -H -ltnp 2>/dev/null | awk -v port=":$port" '$4 ~ port "$" {found=1} END {exit found ? 0 : 1}'; then
+      echo "Port $port is still occupied after cleanup:" >&2
+      ss -ltnp 2>/dev/null | grep ":$port " >&2 || true
+      exit 1
+    fi
+
+    if command -v lsof >/dev/null 2>&1 && lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+      echo "Port $port is still occupied after cleanup:" >&2
+      lsof -nP -iTCP:"$port" -sTCP:LISTEN >&2 || true
+      exit 1
+    fi
+  done
 }
 
 proxy_host_port() {
@@ -91,6 +307,7 @@ svctl() {
 }
 
 free_vpn_ports() {
+  log "Cleaning VPN processes and ports: $VPN_PORTS"
   svctl stop sing-box >/dev/null 2>&1 || true
   svctl stop v2ray-sub >/dev/null 2>&1 || true
   svctl remove sing-box >/dev/null 2>&1 || true
@@ -98,16 +315,25 @@ free_vpn_ports() {
   rm -f /etc/supervisor/conf.d/sing-box.conf /etc/supervisor/conf.d/v2ray-sub.conf
   svctl reread >/dev/null 2>&1 || true
   svctl update >/dev/null 2>&1 || true
-  fuser -k 50001/tcp 50002/tcp 50003/tcp 50004/tcp 50005/tcp >/dev/null 2>&1 || true
+  kill_known_vpn_processes
+  kill_port_listeners $VPN_PORTS
 }
 
 stop_openclaw_and_free_ports() {
+  local conf
+  log "Stopping OpenClaw gateway if present"
   svctl stop openclaw-gateway >/dev/null 2>&1 || true
-  if [ -f /etc/supervisor/conf.d/openclaw-gateway.conf ]; then
-    mv /etc/supervisor/conf.d/openclaw-gateway.conf /etc/supervisor/conf.d/openclaw-gateway.conf.disabled
-  fi
-  pidof openclaw 2>/dev/null | xargs -r kill || true
-  fuser -k 50001/tcp 2>/dev/null || true
+  for conf in /etc/supervisor/conf.d/*openclaw*.conf /etc/supervisor/conf.d/*bohrclaw*.conf; do
+    [ -e "$conf" ] || continue
+    mv "$conf" "$conf.disabled"
+  done
+  svctl reread >/dev/null 2>&1 || true
+  svctl update >/dev/null 2>&1 || true
+  pidof openclaw 2>/dev/null | xargs -r kill >/dev/null 2>&1 || true
+  pkill -TERM -f 'openclaw-gateway|bohrclaw-gateway' >/dev/null 2>&1 || true
+  sleep 1
+  pkill -KILL -f 'openclaw-gateway|bohrclaw-gateway' >/dev/null 2>&1 || true
+  kill_port_listeners 50001
 }
 
 install_sing_box() {
@@ -299,6 +525,7 @@ verify() {
 }
 
 main() {
+  parse_args "$@"
   need_root
   install_deps
   detect_public_host
