@@ -90,6 +90,12 @@ svctl() {
   supervisorctl -c "$SUPERVISOR_CONF" "$@"
 }
 
+free_vpn_ports() {
+  svctl stop sing-box >/dev/null 2>&1 || true
+  svctl stop v2ray-sub >/dev/null 2>&1 || true
+  fuser -k 50001/tcp 50002/tcp 50003/tcp 50004/tcp 50005/tcp >/dev/null 2>&1 || true
+}
+
 stop_openclaw_and_free_ports() {
   svctl stop openclaw-gateway >/dev/null 2>&1 || true
   if [ -f /etc/supervisor/conf.d/openclaw-gateway.conf ]; then
@@ -243,6 +249,8 @@ write_subscription() {
 
 write_supervisor() {
   mkdir -p /etc/supervisor/conf.d
+  free_vpn_ports
+
   cat > /etc/supervisor/conf.d/sing-box.conf <<EOF
 [program:sing-box]
 command=$SBOX_DIR/sing-box run -c $SBOX_DIR/sb.json
@@ -284,8 +292,9 @@ EOF
   fi
   svctl reread
   svctl update
-  svctl restart sing-box >/dev/null 2>&1 || svctl start sing-box
-  svctl restart v2ray-sub >/dev/null 2>&1 || svctl start v2ray-sub
+  sleep 2
+  svctl status sing-box | grep -q RUNNING || svctl start sing-box
+  svctl status v2ray-sub | grep -q RUNNING || svctl start v2ray-sub
 }
 
 verify() {
