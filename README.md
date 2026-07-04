@@ -61,20 +61,14 @@ fetch("https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/browser
 ```
 
    If Chrome blocks pasting into Console, type `allow pasting` first.
-4. The script copies SSH hosts, per-node commands, and subscription URLs to your
-   clipboard.
-5. Save just the copied `ssh root@...bohrium.tech` lines to `hosts.txt`, or use:
+4. The script copies one Mac Terminal command to your clipboard. It looks like:
 
 ```bash
-pbpaste | ./bohrium_extract_hosts.sh > hosts.txt
+BOHRIUM_HOSTS='sufx1491910.bohrium.tech ...' BOHRIUM_SSH_PASSWORD='把密码填这里' bash <(curl -fsSL --retry 5 --connect-timeout 20 https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_fleet_deploy.sh)
 ```
 
-6. Deploy all nodes from your Mac:
-
-```bash
-cd /Users/nfts2968/Documents/openai_cudex/bohrium-sg-vpn
-BOHRIUM_SSH_PASSWORD='your-bohrclaw-password' ./bohrium_fleet_deploy.sh hosts.txt
-```
+5. Paste it into Mac Terminal, replace `把密码填这里` with the BohrClaw SSH
+   password, then press Enter.
 
 If you do not want to use password automation, omit `BOHRIUM_SSH_PASSWORD` and
 enter the password when SSH asks.

@@ -1,5 +1,6 @@
 (() => {
   const setupUrl = "https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh";
+  const fleetUrl = "https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_fleet_deploy.sh";
   const hostRe = /[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.bohrium\.tech/g;
   const texts = [];
 
@@ -48,7 +49,7 @@
     ].join(";");
 
     const title = document.createElement("div");
-    title.textContent = `Found ${hosts.length} Bohrium host(s). Copy the text below.`;
+    title.textContent = `Found ${hosts.length} Bohrium host(s). Paste this one command into Mac Terminal.`;
     title.style.cssText = "font-weight:700;margin-bottom:10px";
 
     const textarea = document.createElement("textarea");
@@ -84,7 +85,7 @@
     try {
       if (typeof copy === "function") {
         copy(output);
-        alert(`Copied ${hosts.length} Bohrium host(s), deploy commands, and subscription URLs.`);
+        alert(`Copied one deploy command for ${hosts.length} Bohrium host(s). Paste it into Mac Terminal and replace the password placeholder.`);
         return;
       }
     } catch (_) {
@@ -93,7 +94,7 @@
 
     try {
       await navigator.clipboard.writeText(output);
-      alert(`Copied ${hosts.length} Bohrium host(s), deploy commands, and subscription URLs.`);
+      alert(`Copied one deploy command for ${hosts.length} Bohrium host(s). Paste it into Mac Terminal and replace the password placeholder.`);
       return;
     } catch (_) {
       console.log(output);
@@ -109,21 +110,13 @@
       return;
     }
 
-    const sshCommands = hosts.map((host) => `ssh root@${host}`).join("\n");
-    const perNodeCommands = hosts
-      .map((host) => `bash <(curl -fsSL --retry 5 --connect-timeout 20 ${setupUrl}) 'ssh root@${host}'`)
-      .join("\n");
-    const subscriptionUrls = hosts.map((host) => `http://${host}:50002/v2ray.txt`).join("\n");
-    const output = [
-      "# Bohrium SSH hosts",
-      sshCommands,
-      "",
-      "# Run inside each node web shell if not using fleet SSH deploy",
-      perNodeCommands,
-      "",
-      "# Subscription URLs after deployment",
-      subscriptionUrls,
-    ].join("\n");
+    const hostList = hosts.join(" ");
+    const output = `BOHRIUM_HOSTS='${hostList}' BOHRIUM_SSH_PASSWORD='把密码填这里' bash <(curl -fsSL --retry 5 --connect-timeout 20 ${fleetUrl})`;
+
+    window.__bohriumSubscriptions = hosts.map((host) => `http://${host}:50002/v2ray.txt`);
+    window.__bohriumSingleNodeCommands = hosts.map(
+      (host) => `bash <(curl -fsSL --retry 5 --connect-timeout 20 ${setupUrl}) 'ssh root@${host}'`
+    );
 
     await copyOutput(output, hosts);
   });

@@ -8,13 +8,14 @@ SETUP_URL=${SETUP_URL:-https://raw.githubusercontent.com/yinchun6969/bohrium-sg-
 SSH_USER=${SSH_USER:-root}
 SSH_PORT=${SSH_PORT:-22}
 OUT_FILE=${OUT_FILE:-bohrium_subscriptions.txt}
-HOSTS_FILE=${1:-}
+INPUT_ARGS=("$@")
 
 usage() {
   cat <<'EOF'
 Usage:
   ./bohrium_fleet_deploy.sh hosts.txt
   pbpaste | ./bohrium_fleet_deploy.sh
+  BOHRIUM_HOSTS='host1.bohrium.tech host2.bohrium.tech' ./bohrium_fleet_deploy.sh
 
 Optional env:
   BOHRIUM_SSH_PASSWORD='password from BohrClaw'
@@ -34,8 +35,14 @@ extract_hosts() {
 }
 
 read_hosts() {
-  if [ -n "${HOSTS_FILE:-}" ]; then
-    extract_hosts < "$HOSTS_FILE"
+  if [ -n "${BOHRIUM_HOSTS:-}" ]; then
+    printf '%s\n' "$BOHRIUM_HOSTS" | extract_hosts
+  elif [ "${#INPUT_ARGS[@]}" -gt 0 ]; then
+    if [ "${#INPUT_ARGS[@]}" -eq 1 ] && [ -f "${INPUT_ARGS[0]}" ]; then
+      extract_hosts < "${INPUT_ARGS[0]}"
+    else
+      printf '%s\n' "${INPUT_ARGS[@]}" | extract_hosts
+    fi
   else
     extract_hosts
   fi
@@ -108,12 +115,12 @@ deploy_one() {
 main() {
   local script host count=0
 
-  if [ "${HOSTS_FILE:-}" = "-h" ] || [ "${HOSTS_FILE:-}" = "--help" ]; then
+  if [ "${INPUT_ARGS[0]:-}" = "-h" ] || [ "${INPUT_ARGS[0]:-}" = "--help" ]; then
     usage
     exit 0
   fi
 
-  if [ -z "${HOSTS_FILE:-}" ] && [ -t 0 ]; then
+  if [ -z "${BOHRIUM_HOSTS:-}" ] && [ "${#INPUT_ARGS[@]}" -eq 0 ] && [ -t 0 ]; then
     usage >&2
     echo >&2
     echo "No hosts file or stdin input provided." >&2
