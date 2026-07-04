@@ -70,17 +70,31 @@ The fleet deploy script writes all subscription URLs to:
 bohrium_subscriptions.txt
 ```
 
-After the script finishes, import this subscription into V2Ray/V2Box:
+## Option C: Argo Tunnel Variant
 
-```text
-http://PUBLIC_HOST:50002/v2ray.txt
+Use this experimental variant when the direct Bohrium public ports are unstable
+or you want one VMess-WS node exposed through a temporary Cloudflare Tunnel.
+This keeps the direct VMess/VLESS/SS/Trojan nodes and adds one extra
+`sg-vmess-ws-argo-443` node to the same subscription.
+
+This is for connectivity compatibility, not for bypassing platform rules or
+avoiding provider detection. The provider can still see processes and outbound
+traffic from the VPS.
+
+Run inside the VPS Web Shell:
+
+```bash
+bash <(curl -fsSL --retry 5 --connect-timeout 20 https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_argo_setup.sh) elcy1491891.bohrium.tech
 ```
 
-Example:
+Then import the normal subscription:
 
 ```text
-http://pjqk1492005.bohrium.tech:50002/v2ray.txt
+http://elcy1491891.bohrium.tech:50002/v2ray.txt
 ```
+
+The script also prints the temporary `trycloudflare.com` domain if Cloudflare
+Tunnel starts successfully.
 
 ## Optional Variables
 
@@ -96,6 +110,7 @@ Defaults:
 - `SG_HTTP_PROXY` uses the VPS `HTTPS_PROXY` or `HTTP_PROXY`, falling back to `http://gemini.op.xdptech.com:8118`.
 - `UUID` is generated automatically and persisted in `/etc/s-box/uuid`.
 - `PUBLIC_HOST` is saved to `/etc/s-box/public_host` after a successful run.
+- `ARGO_ENABLE=0` disables Cloudflare Tunnel in the Argo variant.
 
 ## What It Does
 
