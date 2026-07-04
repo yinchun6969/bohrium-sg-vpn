@@ -5,9 +5,9 @@ set -Eeuo pipefail
 # temporary tunnel for the VMess-WS node. This is a compatibility/reliability
 # variant, not an anti-detection or policy-bypass mechanism.
 # Usage on the VPS:
-#   bash scripts/bohrium_sg_vpn_argo_setup.sh
-#   bash scripts/bohrium_sg_vpn_argo_setup.sh pjqk1492005.bohrium.tech
-#   PUBLIC_HOST=pjqk1492005.bohrium.tech bash scripts/bohrium_sg_vpn_argo_setup.sh
+#   bash scripts/bohrium_sg_vpn_argo_setup.sh dqiw1491909.bohrium.tech
+#   bash scripts/bohrium_sg_vpn_argo_setup.sh 'ssh root@dqiw1491909.bohrium.tech'
+#   PUBLIC_HOST=dqiw1491909.bohrium.tech bash scripts/bohrium_sg_vpn_argo_setup.sh
 #
 # Outputs:
 #   VMess-WS      : $PUBLIC_HOST:50001
@@ -39,16 +39,18 @@ usage() {
 Usage:
   bash bohrium_sg_vpn_argo_setup.sh [PUBLIC_HOST]
   bash bohrium_sg_vpn_argo_setup.sh --host PUBLIC_HOST
-  bash bohrium_sg_vpn_argo_setup.sh 'ssh root@qqvv1491881.bohrium.tech'
+  bash bohrium_sg_vpn_argo_setup.sh 'ssh root@dqiw1491909.bohrium.tech'
 
 Optional env:
-  PUBLIC_HOST=pjqk1492005.bohrium.tech
+  PUBLIC_HOST=dqiw1491909.bohrium.tech
   SG_HTTP_PROXY=http://gemini.op.xdptech.com:8118
   UUID=your-fixed-uuid
 
-If PUBLIC_HOST is omitted, the script tries to discover a *.bohrium.tech host
-from env, hostname, saved state, and local system files. If that fails, it asks
-you to paste the SSH command shown in the Bohrium web UI.
+Inside a Bohrium Web Shell, pass the current VPS host shown on that instance
+card or connection dialog. If PUBLIC_HOST is omitted, the script only trusts
+explicit environment variables and then asks you to paste the current SSH
+command. It intentionally does not reuse saved hosts or shell history because
+Bohrium hosts change after restart.
 EOF
 }
 
@@ -149,7 +151,7 @@ set_public_host_candidate() {
 }
 
 detect_public_host() {
-  local candidate name file public_ip typed_host
+  local candidate name typed_host
 
   if set_public_host_candidate "argument-or-env:PUBLIC_HOST" "$PUBLIC_HOST"; then
     log "PUBLIC_HOST=$PUBLIC_HOST (source: $PUBLIC_HOST_SOURCE)"
@@ -167,12 +169,6 @@ detect_public_host() {
     fi
   done
 
-  candidate=$(printenv 2>/dev/null | extract_bohrium_host)
-  if set_public_host_candidate "env-scan:bohrium.tech" "$candidate"; then
-    log "PUBLIC_HOST=$PUBLIC_HOST (source: $PUBLIC_HOST_SOURCE)"
-    return
-  fi
-
   candidate=$(hostname -f 2>/dev/null || true)
   if set_public_host_candidate "hostname -f" "$candidate"; then
     log "PUBLIC_HOST=$PUBLIC_HOST (source: $PUBLIC_HOST_SOURCE)"
@@ -185,27 +181,10 @@ detect_public_host() {
     return
   fi
 
-  for file in "$SBOX_DIR/public_host" /etc/hostname /etc/hosts /etc/motd /etc/issue /root/.bash_history /root/.zsh_history; do
-    [ -r "$file" ] || continue
-    candidate=$(extract_bohrium_host < "$file")
-    if set_public_host_candidate "file:$file" "$candidate"; then
-      log "PUBLIC_HOST=$PUBLIC_HOST (source: $PUBLIC_HOST_SOURCE)"
-      return
-    fi
-  done
-
-  public_ip=$(curl --noproxy '*' -fsS4m 8 https://api.ipify.org || true)
-  if set_public_host_candidate "public-ip:fallback" "$public_ip"; then
-    log "PUBLIC_HOST=$PUBLIC_HOST (source: $PUBLIC_HOST_SOURCE)"
-    echo "Warning: only a public IPv4 was auto-detected. If clients cannot connect, rerun with the Bohrium host, e.g.:" >&2
-    echo "  bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh) pjqk1492005.bohrium.tech" >&2
-    return
-  fi
-
   if [ -t 0 ] || [ -r /dev/tty ]; then
     echo "Could not auto-detect the Bohrium host from inside the VPS." >&2
     echo "Paste the SSH command or host shown in the Bohrium web UI." >&2
-    echo "Example: ssh root@qqvv1491881.bohrium.tech" >&2
+    echo "Example: ssh root@dqiw1491909.bohrium.tech" >&2
     printf 'Bohrium SSH command or host: ' >&2
     if read -r typed_host </dev/tty; then
       if set_public_host_candidate "interactive-input" "$typed_host"; then
@@ -217,15 +196,24 @@ detect_public_host() {
 
   echo "Could not auto-detect PUBLIC_HOST." >&2
   echo "Run again with the Bohrium SSH/public host, e.g.:" >&2
-  echo "  bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh) 'ssh root@qqvv1491881.bohrium.tech'" >&2
+  echo "  bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh) 'ssh root@dqiw1491909.bohrium.tech'" >&2
   echo "or:" >&2
-  echo "  PUBLIC_HOST=qqvv1491881.bohrium.tech bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh)" >&2
+  echo "  PUBLIC_HOST=dqiw1491909.bohrium.tech bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh)" >&2
   exit 1
 }
 
 persist_public_host() {
   mkdir -p "$SBOX_DIR"
   printf '%s\n' "$PUBLIC_HOST" > "$SBOX_DIR/public_host"
+}
+
+print_public_host_notice() {
+  cat <<EOF
+==> Subscription host selected: ${PUBLIC_HOST}
+    The generated URL will be: http://${PUBLIC_HOST}:50002/v2ray.txt
+    If this is not the current Bohrium domain for this VPS, stop now and rerun
+    with the correct host from the instance card or connection dialog.
+EOF
 }
 
 terminate_pid() {
@@ -634,6 +622,7 @@ main() {
   parse_args "$@"
   need_root
   detect_public_host
+  print_public_host_notice
   persist_public_host
   install_deps
   proxy_host_port

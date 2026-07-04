@@ -17,25 +17,31 @@ HY2/TUIC are intentionally skipped because this Bohrium environment did not forw
 Use this when you are on your phone or only need one node.
 
 1. Start the VPS in BohrClaw.
-2. Copy the domain shown on the instance card or connection dialog, for example
-   `qqvv1491881.bohrium.tech`.
+2. Copy the domain shown on this exact instance card or connection dialog, for
+   example `dqiw1491909.bohrium.tech`.
 3. Open the VPS Web Shell.
 4. Run this inside the VPS:
 
 ```bash
-bash <(curl -fsSL --retry 5 --connect-timeout 20 https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh) qqvv1491881.bohrium.tech
+HOST='dqiw1491909.bohrium.tech'
+bash <(curl -fsSL --retry 5 --connect-timeout 20 https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh) "$HOST"
 ```
+
+Important: change `HOST` every time Bohrium restarts the VPS. If the current
+SSH command is `ssh root@dqiw1491909.bohrium.tech`, do not keep using an older
+host such as `qqvv1491881.bohrium.tech`, or the subscription URL will point to
+the wrong VPS.
 
 Pasting the full SSH command also works:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh) 'ssh root@qqvv1491881.bohrium.tech'
+bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh) 'ssh root@dqiw1491909.bohrium.tech'
 ```
 
 After it finishes, import:
 
 ```text
-http://qqvv1491881.bohrium.tech:50002/v2ray.txt
+http://dqiw1491909.bohrium.tech:50002/v2ray.txt
 ```
 
 ## Option B: Mac Batch Deploy
@@ -84,13 +90,14 @@ traffic from the VPS.
 Run inside the VPS Web Shell:
 
 ```bash
-bash <(curl -fsSL --retry 5 --connect-timeout 20 https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_argo_setup.sh) elcy1491891.bohrium.tech
+HOST='dqiw1491909.bohrium.tech'
+bash <(curl -fsSL --retry 5 --connect-timeout 20 https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_argo_setup.sh) "$HOST"
 ```
 
 Then import the normal subscription:
 
 ```text
-http://elcy1491891.bohrium.tech:50002/v2ray.txt
+http://dqiw1491909.bohrium.tech:50002/v2ray.txt
 ```
 
 The script also prints the temporary `trycloudflare.com` domain if Cloudflare
@@ -109,12 +116,12 @@ Defaults:
 
 - `SG_HTTP_PROXY` uses the VPS `HTTPS_PROXY` or `HTTP_PROXY`, falling back to `http://gemini.op.xdptech.com:8118`.
 - `UUID` is generated automatically and persisted in `/etc/s-box/uuid`.
-- `PUBLIC_HOST` is saved to `/etc/s-box/public_host` after a successful run.
+- `PUBLIC_HOST` is saved to `/etc/s-box/public_host` after a successful run for diagnostics only. The setup script does not reuse that saved value automatically, because Bohrium changes hosts after restart.
 - `ARGO_ENABLE=0` disables Cloudflare Tunnel in the Argo variant.
 
 ## What It Does
 
-1. Detects or asks for `PUBLIC_HOST` before installing packages.
+1. Uses the explicit `PUBLIC_HOST`/argument, or asks for the current Bohrium host before installing packages.
 2. Saves `PUBLIC_HOST` to `/etc/s-box/public_host`.
 3. Installs dependencies.
 4. Stops old `sing-box`/subscription processes and frees `50001-50005`.
