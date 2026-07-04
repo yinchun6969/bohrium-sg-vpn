@@ -1,6 +1,8 @@
 (() => {
   const setupUrl = "https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh";
   const fleetUrl = "https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_fleet_deploy.sh";
+  const fleetCdnUrl = "https://cdn.jsdelivr.net/gh/yinchun6969/bohrium-sg-vpn@main/bohrium_fleet_deploy.sh";
+  const localFleetPath = "/Users/nfts2968/Documents/openai_cudex/bohrium-sg-vpn/bohrium_fleet_deploy.sh";
   const hostRe = /[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.bohrium\.tech/g;
   const texts = [];
 
@@ -111,7 +113,12 @@
     }
 
     const hostList = hosts.join(" ");
-    const output = `BOHRIUM_HOSTS='${hostList}' BOHRIUM_SSH_PASSWORD='把密码填这里' bash <(curl -fsSL --retry 5 --connect-timeout 20 ${fleetUrl})`;
+    const output = [
+      `BOHRIUM_HOSTS='${hostList}'`,
+      `BOHRIUM_SSH_PASSWORD='把密码填这里'`,
+      `F='${localFleetPath}'`,
+      `if [ -x "$F" ]; then "$F"; else bash <(curl -fsSL --retry 5 --connect-timeout 20 ${fleetCdnUrl} || curl -fsSL --retry 5 --connect-timeout 20 ${fleetUrl}); fi`,
+    ].join(" ");
 
     window.__bohriumSubscriptions = hosts.map((host) => `http://${host}:50002/v2ray.txt`);
     window.__bohriumSingleNodeCommands = hosts.map(

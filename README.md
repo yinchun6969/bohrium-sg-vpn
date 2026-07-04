@@ -12,44 +12,38 @@ It deploys the TCP protocols that were verified to work on Bohrium's public port
 
 HY2/TUIC are intentionally skipped because this Bohrium environment did not forward UDP.
 
-## Phone Usage
+## Option A: Phone/Web Shell Single Node
 
-SSH into the new VPS, then run:
+Use this when you are on your phone or only need one node.
+
+1. Start the VPS in BohrClaw.
+2. Copy the domain shown on the instance card or connection dialog, for example
+   `qqvv1491881.bohrium.tech`.
+3. Open the VPS Web Shell.
+4. Run this inside the VPS:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh)
+bash <(curl -fsSL --retry 5 --connect-timeout 20 https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh) qqvv1491881.bohrium.tech
 ```
 
-The VPS usually cannot see the SSH host displayed in the BohrClaw web UI. If
-auto-detection fails, the script asks you to paste the SSH command from the
-connection dialog.
-
-Most reliable phone usage: copy the SSH command from BohrClaw and pass it as the
-first argument:
+Pasting the full SSH command also works:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh) 'ssh root@qqvv1491881.bohrium.tech'
 ```
 
-Host-only style also works:
+After it finishes, import:
 
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh) pjqk1492005.bohrium.tech
+```text
+http://qqvv1491881.bohrium.tech:50002/v2ray.txt
 ```
 
-Equivalent env style:
+## Option B: Mac Batch Deploy
 
-```bash
-PUBLIC_HOST=pjqk1492005.bohrium.tech bash <(curl -fsSL https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh)
-```
-
-## Six-Node Workflow
-
-The VPS cannot discover the web UI SSH host by itself after a restart, because
-that host is assigned and displayed by BohrClaw outside the machine. You do not
-need to keep six browser windows open. Open one BohrClaw dashboard after you
-manually start the nodes, extract the visible card domains once, then deploy
-from your Mac.
+Use this when you started several nodes and want to deploy all of them at once.
+You do not need to keep six browser windows open. Open one BohrClaw dashboard
+after you manually start the nodes, extract the visible card domains once, then
+deploy from your Mac.
 
 1. In BohrClaw, manually start the nodes you want to use.
 2. Keep the main instance list page open. If the card shows hosts like
@@ -69,9 +63,6 @@ BOHRIUM_HOSTS='sufx1491910.bohrium.tech ...' BOHRIUM_SSH_PASSWORD='把密码填�
 
 5. Paste it into Mac Terminal, replace `把密码填这里` with the BohrClaw SSH
    password, then press Enter.
-
-If you do not want to use password automation, omit `BOHRIUM_SSH_PASSWORD` and
-enter the password when SSH asks.
 
 The fleet deploy script writes all subscription URLs to:
 

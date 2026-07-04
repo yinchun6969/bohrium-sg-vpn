@@ -4,11 +4,14 @@ set -Eeuo pipefail
 # Deploy the Bohrium SG VPN script to many restarted Bohrium nodes.
 # Input can be a hosts file, pasted SSH commands, or stdin.
 
-SETUP_URL=${SETUP_URL:-https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh}
+DEFAULT_SETUP_URL=https://raw.githubusercontent.com/yinchun6969/bohrium-sg-vpn/main/bohrium_sg_vpn_setup.sh
+CDN_SETUP_URL=https://cdn.jsdelivr.net/gh/yinchun6969/bohrium-sg-vpn@main/bohrium_sg_vpn_setup.sh
+SETUP_URL=${SETUP_URL:-$DEFAULT_SETUP_URL}
 SSH_USER=${SSH_USER:-root}
 SSH_PORT=${SSH_PORT:-22}
 OUT_FILE=${OUT_FILE:-bohrium_subscriptions.txt}
 INPUT_ARGS=("$@")
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)
 
 usage() {
   cat <<'EOF'
@@ -28,6 +31,25 @@ The input may contain raw hosts or full SSH commands, for example:
   ssh root@qqvv1491881.bohrium.tech
   qqvv1491881.bohrium.tech
 EOF
+}
+
+fetch_setup_script() {
+  local dest=$1
+  local local_setup=""
+
+  if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/bohrium_sg_vpn_setup.sh" ]; then
+    local_setup=$SCRIPT_DIR/bohrium_sg_vpn_setup.sh
+  elif [ -f /Users/nfts2968/Documents/openai_cudex/bohrium-sg-vpn/bohrium_sg_vpn_setup.sh ]; then
+    local_setup=/Users/nfts2968/Documents/openai_cudex/bohrium-sg-vpn/bohrium_sg_vpn_setup.sh
+  fi
+
+  if [ -n "$local_setup" ]; then
+    cp "$local_setup" "$dest"
+    return
+  fi
+
+  curl -fsSL --retry 5 --connect-timeout 20 -o "$dest" "$CDN_SETUP_URL" \
+    || curl -fsSL --retry 5 --connect-timeout 20 -o "$dest" "$SETUP_URL"
 }
 
 extract_hosts() {
@@ -128,9 +150,9 @@ main() {
   fi
 
   script=$(mktemp)
-  trap 'rm -f "$script"' EXIT
+  trap 'rm -f "${script:-}"' EXIT
 
-  curl -fsSL --retry 5 --connect-timeout 20 -o "$script" "$SETUP_URL"
+  fetch_setup_script "$script"
   bash -n "$script"
 
   : > "$OUT_FILE"
