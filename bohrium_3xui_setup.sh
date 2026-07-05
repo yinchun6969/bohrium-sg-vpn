@@ -321,16 +321,25 @@ panel_base_candidates() {
 login_panel() {
   COOKIE_FILE=$(mktemp)
   export COOKIE_FILE
-  local payload response http_code url body ok
-  payload=$(jq -nc --arg u "$XUI_USERNAME" --arg p "$XUI_PASSWORD" '{username:$u,password:$p,twoFactorCode:""}')
+  local response http_code url body ok token
 
   while IFS= read -r base; do
+    curl -fsS -c "$COOKIE_FILE" -b "$COOKIE_FILE" --connect-timeout 5 --max-time 15 "${base%/}/" >/dev/null || true
+    PANEL_BASE=$base
+    token=$(get_csrf_token || true)
+    [ -n "$token" ] || continue
     url="${base%/}/login"
     body=$(mktemp)
     http_code=$(curl -sS -o "$body" -w '%{http_code}' -c "$COOKIE_FILE" \
-      -H 'Content-Type: application/json' \
+      -b "$COOKIE_FILE" \
+      -H 'X-Requested-With: XMLHttpRequest' \
+      -H "X-CSRF-Token: $token" \
+      -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8' \
       --connect-timeout 5 --max-time 15 \
-      -d "$payload" "$url" || true)
+      --data-urlencode "username=$XUI_USERNAME" \
+      --data-urlencode "password=$XUI_PASSWORD" \
+      --data-urlencode "twoFactorCode=" \
+      "$url" || true)
     response=$(cat "$body")
     rm -f "$body"
     ok=$(printf '%s' "$response" | jq -r 'if type=="object" then .success // false else false end' 2>/dev/null || true)
@@ -348,18 +357,33 @@ EOF
   exit 1
 }
 
+get_csrf_token() {
+  curl -fsS -c "$COOKIE_FILE" -b "$COOKIE_FILE" \
+    -H 'X-Requested-With: XMLHttpRequest' \
+    --connect-timeout 5 --max-time 15 \
+    "${PANEL_BASE%/}/csrf-token" | jq -r 'if .success == true then .obj // empty else empty end'
+}
+
 delete_existing_mixed_inbounds() {
-  local list ids id
-  list=$(curl -fsS -b "$COOKIE_FILE" --connect-timeout 5 --max-time 15 "${PANEL_BASE%/}/panel/api/inbounds/list" || true)
+  local list ids id token
+  list=$(curl -fsS -b "$COOKIE_FILE" \
+    -H 'X-Requested-With: XMLHttpRequest' \
+    --connect-timeout 5 --max-time 15 \
+    "${PANEL_BASE%/}/panel/api/inbounds/list" || true)
   [ -n "$list" ] || return 0
   ids=$(printf '%s' "$list" | jq -r --argjson p "$MIXED_PORT" '.obj[]? | select(.port == $p or .remark == "bohrium-mixed") | .id' 2>/dev/null || true)
   for id in $ids; do
-    curl -fsS -X POST -b "$COOKIE_FILE" --connect-timeout 5 --max-time 15 "${PANEL_BASE%/}/panel/api/inbounds/del/${id}" >/dev/null || true
+    token=$(get_csrf_token || true)
+    curl -fsS -X POST -b "$COOKIE_FILE" \
+      -H 'X-Requested-With: XMLHttpRequest' \
+      -H "X-CSRF-Token: $token" \
+      --connect-timeout 5 --max-time 15 \
+      "${PANEL_BASE%/}/panel/api/inbounds/del/${id}" >/dev/null || true
   done
 }
 
 add_mixed_inbound() {
-  local payload response ok
+  local payload response ok token
   payload=$(jq -nc \
     --arg remark "bohrium-mixed" \
     --arg host "$PUBLIC_HOST" \
@@ -401,7 +425,14 @@ add_mixed_inbound() {
       tag: "bohrium-mixed"
     }')
 
+  token=$(get_csrf_token || true)
+  if [ -z "$token" ]; then
+    echo "Could not fetch CSRF token before creating mixed inbound." >&2
+    exit 1
+  fi
   response=$(curl -fsS -X POST -b "$COOKIE_FILE" \
+    -H 'X-Requested-With: XMLHttpRequest' \
+    -H "X-CSRF-Token: $token" \
     -H 'Content-Type: application/json' \
     --connect-timeout 5 --max-time 20 \
     -d "$payload" "${PANEL_BASE%/}/panel/api/inbounds/add")
