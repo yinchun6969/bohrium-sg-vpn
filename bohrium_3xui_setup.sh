@@ -8,8 +8,8 @@ set -Eeuo pipefail
 
 PUBLIC_HOST=${PUBLIC_HOST:-}
 PUBLIC_HOST_SOURCE=${PUBLIC_HOST_SOURCE:-}
-PANEL_PORT=${PANEL_PORT:-50010}
-MIXED_PORT=${MIXED_PORT:-50020}
+PANEL_PORT=${PANEL_PORT:-50002}
+MIXED_PORT=${MIXED_PORT:-50001}
 XUI_VERSION=${XUI_VERSION:-v3.4.2}
 XUI_INSTALL_URL=${XUI_INSTALL_URL:-https://raw.githubusercontent.com/MHSanaei/3x-ui/main/install.sh}
 XUI_USERNAME=${XUI_USERNAME:-}
@@ -34,14 +34,14 @@ Usage:
 
 Optional env:
   PUBLIC_HOST=qqvv1491881.bohrium.tech
-  PANEL_PORT=50010
-  MIXED_PORT=50020
+  PANEL_PORT=50002
+  MIXED_PORT=50001
   XUI_VERSION=v3.4.2
 
 Outputs:
-  3x-ui panel: http://PUBLIC_HOST:50010/RANDOM_PATH
-  HTTP proxy : PUBLIC_HOST:50020
-  SOCKS5     : PUBLIC_HOST:50020
+  3x-ui panel: http://PUBLIC_HOST:50002/RANDOM_PATH
+  HTTP proxy : PUBLIC_HOST:50001
+  SOCKS5     : PUBLIC_HOST:50001
 
 The random panel path and generated passwords are saved in:
   /etc/x-ui/install-result.env
@@ -205,10 +205,23 @@ stop_old_3xui() {
     supervisorctl -c "$SUPERVISOR_CONF" stop x-ui >/dev/null 2>&1 || true
     supervisorctl -c "$SUPERVISOR_CONF" shutdown >/dev/null 2>&1 || true
   fi
+  stop_known_bohrium_services
   pkill -f '/usr/local/x-ui/x-ui' >/dev/null 2>&1 || true
   pkill -f 'xray-linux-.* -c /usr/local/x-ui' >/dev/null 2>&1 || true
   free_port "$PANEL_PORT"
   free_port "$MIXED_PORT"
+}
+
+stop_known_bohrium_services() {
+  local conf
+  for conf in /etc/supervisor/openclaw-supervisord.conf /etc/supervisor/supervisord.conf; do
+    [ -f "$conf" ] || continue
+    supervisorctl -c "$conf" stop sing-box v2ray-sub openclaw-gateway >/dev/null 2>&1 || true
+    supervisorctl -c "$conf" remove sing-box v2ray-sub openclaw-gateway >/dev/null 2>&1 || true
+  done
+  pkill -f '/etc/s-box/sing-box' >/dev/null 2>&1 || true
+  pkill -f 'python3 -m http.server .*50002' >/dev/null 2>&1 || true
+  pkill -f 'openclaw.*gateway|openclaw-gateway' >/dev/null 2>&1 || true
 }
 
 generate_credentials() {
@@ -236,6 +249,30 @@ install_3xui() {
   else
     bash <(curl -fsSL --retry 5 --retry-delay 3 --connect-timeout 20 "$XUI_INSTALL_URL")
   fi
+}
+
+enforce_panel_settings() {
+  local api_token web_path
+  web_path=$(printf '%s' "$XUI_WEB_BASE_PATH" | sed 's#^/*##; s#/*$##')
+  /usr/local/x-ui/x-ui setting \
+    -username "$XUI_USERNAME" \
+    -password "$XUI_PASSWORD" \
+    -port "$PANEL_PORT" \
+    -webBasePath "$web_path" >/dev/null
+  api_token=$(/usr/local/x-ui/x-ui setting -getApiToken true 2>/dev/null | awk '/apiToken:/ {print $2; exit}' || true)
+
+  install -d -m 755 /etc/x-ui
+  umask 077
+  cat > /etc/x-ui/install-result.env <<EOF
+XUI_USERNAME='$XUI_USERNAME'
+XUI_PASSWORD='$XUI_PASSWORD'
+XUI_PANEL_PORT='$PANEL_PORT'
+XUI_WEB_BASE_PATH='$web_path'
+XUI_ACCESS_URL='http://$PUBLIC_HOST:$PANEL_PORT/$web_path'
+XUI_API_TOKEN='$api_token'
+XUI_DB_TYPE='sqlite'
+EOF
+  chmod 600 /etc/x-ui/install-result.env
 }
 
 write_supervisor_config() {
@@ -512,6 +549,7 @@ main() {
   log "Cleaning old 3x-ui processes and ports: $PANEL_PORT $MIXED_PORT"
   stop_old_3xui
   install_3xui
+  enforce_panel_settings
   load_install_result
   start_3xui
   login_panel
