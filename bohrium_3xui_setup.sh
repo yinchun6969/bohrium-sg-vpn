@@ -581,9 +581,10 @@ wait_mixed_port() {
 }
 
 write_result() {
-  local web_path panel_url
+  local web_path panel_url api_token
   web_path=$(printf '%s' "$XUI_WEB_BASE_PATH" | sed 's#^/*##; s#/*$##')
   panel_url="http://${PUBLIC_HOST}:${PANEL_PORT}/${web_path}"
+  api_token=${XUI_API_TOKEN:-}
   install -d -m 755 /etc/x-ui
   umask 077
   cat > "$RESULT_FILE" <<EOF
@@ -593,26 +594,34 @@ PANEL_PORT='$PANEL_PORT'
 PANEL_PATH='$web_path'
 PANEL_USERNAME='$XUI_USERNAME'
 PANEL_PASSWORD='$XUI_PASSWORD'
+PANEL_API_TOKEN='$api_token'
 MIXED_PORT='$MIXED_PORT'
 MIXED_USER='$MIXED_USER'
 MIXED_PASS='$MIXED_PASS'
 SG_HTTP_PROXY='$SG_HTTP_PROXY'
 HTTP_PROXY_URL='http://$MIXED_USER:$MIXED_PASS@$PUBLIC_HOST:$MIXED_PORT'
 SOCKS5_PROXY_URL='socks5://$MIXED_USER:$MIXED_PASS@$PUBLIC_HOST:$MIXED_PORT'
+NODE_SCHEME='http'
+NODE_ADDRESS='$PUBLIC_HOST'
+NODE_PORT='$PANEL_PORT'
+NODE_BASE_PATH='/$web_path/'
+NODE_API_TOKEN='$api_token'
 EOF
   chmod 600 "$RESULT_FILE"
 }
 
 print_result() {
-  local web_path panel_url
+  local web_path panel_url api_token
   web_path=$(printf '%s' "$XUI_WEB_BASE_PATH" | sed 's#^/*##; s#/*$##')
   panel_url="http://${PUBLIC_HOST}:${PANEL_PORT}/${web_path}"
+  api_token=${XUI_API_TOKEN:-}
   cat <<EOF
 
 == 3x-ui panel ==
 URL      : $panel_url
 Username : $XUI_USERNAME
 Password : $XUI_PASSWORD
+API Token: $api_token
 
 == HTTP / SOCKS5 mixed proxy ==
 Host     : $PUBLIC_HOST
@@ -622,6 +631,14 @@ Password : $MIXED_PASS
 HTTP URL : http://$MIXED_USER:$MIXED_PASS@$PUBLIC_HOST:$MIXED_PORT
 SOCKS5   : socks5://$MIXED_USER:$MIXED_PASS@$PUBLIC_HOST:$MIXED_PORT
 Egress   : SG via $SG_HTTP_PROXY
+
+== 3x-ui Node fields for a master panel ==
+Name     : $PUBLIC_HOST
+Scheme   : http
+Address  : $PUBLIC_HOST
+Port     : $PANEL_PORT
+BasePath : /$web_path/
+API Token: $api_token
 
 Saved to : $RESULT_FILE
 Recover  : cat $RESULT_FILE
