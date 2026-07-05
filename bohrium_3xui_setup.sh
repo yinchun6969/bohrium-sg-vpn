@@ -17,6 +17,7 @@ XUI_PASSWORD=${XUI_PASSWORD:-}
 XUI_WEB_BASE_PATH=${XUI_WEB_BASE_PATH:-}
 MIXED_USER=${MIXED_USER:-}
 MIXED_PASS=${MIXED_PASS:-}
+SG_HTTP_PROXY=${SG_HTTP_PROXY:-http://gemini.op.xdptech.com:8118}
 RESULT_FILE=${RESULT_FILE:-/etc/x-ui/bohrium-proxy.env}
 SUPERVISOR_CONF=${SUPERVISOR_CONF:-/etc/supervisor/bohrium-3xui-supervisord.conf}
 SUPERVISOR_SOCKET=${SUPERVISOR_SOCKET:-/run/bohrium-3xui-supervisor.sock}
@@ -37,6 +38,7 @@ Optional env:
   PANEL_PORT=50002
   MIXED_PORT=50001
   XUI_VERSION=v3.4.2
+  SG_HTTP_PROXY=http://gemini.op.xdptech.com:8118
 
 Outputs:
   3x-ui panel: http://PUBLIC_HOST:50002/RANDOM_PATH
@@ -401,6 +403,30 @@ get_csrf_token() {
     "${PANEL_BASE%/}/csrf-token" | jq -r 'if .success == true then .obj // empty else empty end'
 }
 
+parse_http_proxy() {
+  local proxy=$1 authority userinfo hostport
+  proxy=${proxy#http://}
+  proxy=${proxy#https://}
+  authority=${proxy%%/*}
+  if printf '%s' "$authority" | grep -q '@'; then
+    userinfo=${authority%@*}
+    SG_PROXY_USER=${userinfo%%:*}
+    SG_PROXY_PASS=${userinfo#*:}
+    [ "$SG_PROXY_PASS" = "$userinfo" ] && SG_PROXY_PASS=
+    hostport=${authority##*@}
+  else
+    SG_PROXY_USER=
+    SG_PROXY_PASS=
+    hostport=$authority
+  fi
+  SG_PROXY_HOST=${hostport%:*}
+  SG_PROXY_PORT=${hostport##*:}
+  if [ -z "$SG_PROXY_HOST" ] || [ -z "$SG_PROXY_PORT" ] || [ "$SG_PROXY_HOST" = "$SG_PROXY_PORT" ]; then
+    echo "Invalid SG_HTTP_PROXY. Expected http://host:port, got: $proxy" >&2
+    exit 1
+  fi
+}
+
 delete_existing_mixed_inbounds() {
   local list ids id token
   list=$(curl -fsS -b "$COOKIE_FILE" \
@@ -481,6 +507,66 @@ add_mixed_inbound() {
   fi
 }
 
+configure_sg_outbound() {
+  local token current_config updated_config response ok proxy_settings
+  parse_http_proxy "$SG_HTTP_PROXY"
+  log "Configuring Xray outbound through SG HTTP proxy: $SG_PROXY_HOST:$SG_PROXY_PORT"
+
+  current_config=$(mktemp)
+  updated_config=$(mktemp)
+  token=$(get_csrf_token || true)
+  curl -fsS -X POST -b "$COOKIE_FILE" \
+    -H 'X-Requested-With: XMLHttpRequest' \
+    -H "X-CSRF-Token: $token" \
+    --connect-timeout 5 --max-time 20 \
+    "${PANEL_BASE%/}/panel/api/xray/" \
+    | jq -r '.obj | fromjson | .xraySetting' > "$current_config"
+
+  proxy_settings=$(jq -nc \
+    --arg host "$SG_PROXY_HOST" \
+    --argjson port "$SG_PROXY_PORT" \
+    --arg user "$SG_PROXY_USER" \
+    --arg pass "$SG_PROXY_PASS" \
+    '{
+      servers: [
+        (
+          {address: $host, port: $port}
+          + (if $user != "" then {users: [{user: $user, pass: $pass}]} else {} end)
+        )
+      ]
+    }')
+
+  jq --argjson settings "$proxy_settings" '
+    .outbounds = [
+      {protocol: "http", tag: "direct", settings: $settings},
+      {protocol: "blackhole", tag: "blocked", settings: {}}
+    ]
+    | .routing.rules = (
+        ([.routing.rules[]? | select((.inboundTag // []) != ["api"])])
+        | [{type: "field", inboundTag: ["api"], outboundTag: "api"}] + .
+      )
+  ' "$current_config" > "$updated_config"
+
+  token=$(get_csrf_token || true)
+  response=$(curl -fsS -X POST -b "$COOKIE_FILE" \
+    -H 'X-Requested-With: XMLHttpRequest' \
+    -H "X-CSRF-Token: $token" \
+    -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8' \
+    --connect-timeout 5 --max-time 30 \
+    --data-urlencode "xraySetting@$updated_config" \
+    --data-urlencode "outboundTestUrl=https://ipinfo.io/ip" \
+    "${PANEL_BASE%/}/panel/api/xray/update")
+  rm -f "$current_config" "$updated_config"
+
+  ok=$(printf '%s' "$response" | jq -r 'if type=="object" then .success // false else false end' 2>/dev/null || true)
+  if [ "$ok" != "true" ]; then
+    echo "Failed to configure SG outbound:" >&2
+    printf '%s\n' "$response" >&2
+    exit 1
+  fi
+  sleep 2
+}
+
 wait_mixed_port() {
   local i
   for i in $(seq 1 20); do
@@ -510,6 +596,7 @@ PANEL_PASSWORD='$XUI_PASSWORD'
 MIXED_PORT='$MIXED_PORT'
 MIXED_USER='$MIXED_USER'
 MIXED_PASS='$MIXED_PASS'
+SG_HTTP_PROXY='$SG_HTTP_PROXY'
 HTTP_PROXY_URL='http://$MIXED_USER:$MIXED_PASS@$PUBLIC_HOST:$MIXED_PORT'
 SOCKS5_PROXY_URL='socks5://$MIXED_USER:$MIXED_PASS@$PUBLIC_HOST:$MIXED_PORT'
 EOF
@@ -534,6 +621,7 @@ Username : $MIXED_USER
 Password : $MIXED_PASS
 HTTP URL : http://$MIXED_USER:$MIXED_PASS@$PUBLIC_HOST:$MIXED_PORT
 SOCKS5   : socks5://$MIXED_USER:$MIXED_PASS@$PUBLIC_HOST:$MIXED_PORT
+Egress   : SG via $SG_HTTP_PROXY
 
 Saved to : $RESULT_FILE
 Recover  : cat $RESULT_FILE
@@ -555,6 +643,7 @@ main() {
   login_panel
   delete_existing_mixed_inbounds
   add_mixed_inbound
+  configure_sg_outbound
   wait_mixed_port
   write_result
   print_result
